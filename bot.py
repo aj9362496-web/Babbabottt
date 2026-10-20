@@ -21,7 +21,7 @@ api_id = 37093326
 api_hash = "6e370e6d265a4866e3af0da44c8334da"  
 
 # Control bot ka token (Direct fixed)
-BOT_TOKEN = "8890372929:AAE9-x31PtV43DDwuzRzQ9aPWVoCsNCN46s"
+BOT_TOKEN = "8890372929:AAFpTlUJsz4ddPfAWMNYjKVlrwLZhVh_khM"
 
 # User account session: Railway Variables
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
@@ -356,3 +356,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+            
