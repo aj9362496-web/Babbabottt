@@ -17,11 +17,11 @@ from telethon.errors import (
 # TELEGRAM API CONFIGURATION
 # ==========================================
 
-api_id = 37093326  # Apni API ID daalo
-api_hash = "6e370e6d265a4866e3af0da44c8334da"  # Apna API HASH daalo
+api_id = 37093326  
+api_hash = "6e370e6d265a4866e3af0da44c8334da"  
 
-# Control bot ka token (Direct fix kar diya hai)
-BOT_TOKEN = "8890372929:AAFpTlUJsz4ddPfAWMNYjKVlrwLZhVh_khM"
+# Control bot ka token (Direct fixed)
+BOT_TOKEN = "8890372929:AAE9-x31PtV43DDwuzRzQ9aPWVoCsNCN46s"
 
 # User account session: Railway Variables
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
@@ -136,16 +136,9 @@ bot_client = TelegramClient(
     api_hash
 )
 
-# Pending setup steps
 pending = {}
 
-# Only IDs listed here can control the bot.
-# Set OWNER_IDS in Railway, e.g. "123456789"
-OWNER_IDS = {
-    int(x.strip())
-    for x in os.environ.get("OWNER_IDS", "").split(",")
-    if x.strip().isdigit()
-}
+OWNER_IDS = {8963867689}
 
 # ==========================================
 # HELPERS
@@ -153,156 +146,23 @@ OWNER_IDS = {
 
 def valid_channel_id(text):
     text = text.strip()
-
     if not re.fullmatch(r"-?\d+", text):
         return None
-
     value = int(text)
-
     if value > 0:
         return None
-
     return value
 
 def main_menu():
     return [
         [Button.inline("➕ ADD ANOTHER CHANNEL", b"add")],
         [Button.inline("📋 VIEW CONNECTIONS", b"view")],
-        [Button.inline("🚀 START TRANSFER", b"start_transfer")],
+        [Button.inline("🚀 START TRANSFER & OLD VIDEOS", b"start_transfer")],
         [Button.inline("⏹ STOP TRANSFER", b"stop_transfer")],
     ]
 
-async def send_menu(event, message):
-    await event.respond(message, buttons=main_menu())
-
 # ==========================================
-# CONTROL BOT
-# ==========================================
-
-@bot_client.on(events.NewMessage(pattern=r"^/start$"))
-async def start_handler(event):
-    if event.sender_id not in OWNER_IDS:
-        await event.respond("⛔ You are not authorised to use this bot.")
-        return
-
-    pending.pop(event.sender_id, None)
-
-    await event.respond(
-        "🎬 VIDEO AUTO TRANSFER BOT\n\n"
-        "Press ADD ANOTHER CHANNEL to create a connection.\n"
-        "Each source will have its own target.",
-        buttons=main_menu()
-    )
-
-@bot_client.on(events.CallbackQuery)
-async def button_handler(event):
-    owner_id = event.sender_id
-
-    if owner_id not in OWNER_IDS:
-        await event.answer("Not authorised.", alert=True)
-        return
-
-    data = event.data
-
-    if data == b"add":
-        pending[owner_id] = {
-            "step": "source"
-        }
-
-        await event.edit(
-            "📥 Please send your SOURCE CHANNEL ID.\n\n"
-            "Your Telegram user account must have access to it."
-        )
-
-    elif data == b"view":
-        connections = get_connections(owner_id)
-
-        if not connections:
-            await event.respond("No connections configured.")
-            return
-
-        lines = ["📋 YOUR CONNECTIONS\n"]
-
-        for i, (source, target) in enumerate(connections, 1):
-            lines.append(
-                f"{i}. SOURCE: {source}\n"
-                f"   TARGET: {target}\n"
-            )
-
-        await event.respond("\n".join(lines))
-
-    elif data == b"start_transfer":
-        connections = get_connections(owner_id)
-
-        if not connections:
-            await event.answer(
-                "Add at least one source and target first.",
-                alert=True
-            )
-            return
-
-        set_transfer_status(owner_id, True)
-
-        await event.respond(
-            "✅ TRANSFER ENABLED\n\n"
-            "New videos will be monitored for your configured connections."
-        )
-
-    elif data == b"stop_transfer":
-        set_transfer_status(owner_id, False)
-
-        await event.respond("⏹ Transfer stopped.")
-
-@bot_client.on(events.NewMessage)
-async def setup_handler(event):
-    owner_id = event.sender_id
-
-    if owner_id not in OWNER_IDS:
-        return
-
-    if event.raw_text and event.raw_text.startswith("/"):
-        return
-
-    state = pending.get(owner_id)
-
-    if not state:
-        return
-
-    channel_id = valid_channel_id(event.raw_text or "")
-
-    if channel_id is None:
-        await event.respond(
-            "❌ Invalid ID. Send a numeric Telegram channel/group ID."
-        )
-        return
-
-    if state["step"] == "source":
-        state["source_id"] = channel_id
-        state["step"] = "target"
-
-        await event.respond(
-            f"✅ SOURCE ACCEPTED: {channel_id}\n\n"
-            "Now send the TARGET CHANNEL/GROUP ID."
-        )
-
-    elif state["step"] == "target":
-        source_id = state["source_id"]
-        target_id = channel_id
-
-        save_connection(owner_id, source_id, target_id)
-
-        pending.pop(owner_id, None)
-
-        await event.respond(
-            f"✅ CONNECTION SAVED\n\n"
-            f"SOURCE: {source_id}\n"
-            f"TARGET: {target_id}\n\n"
-            "What would you like to do next?",
-            buttons=main_menu()
-        )
-
-# ==========================================
-# VIDEO TRANSFER
+# VIDEO TRANSFER FUNCTION (CLEAN VIDEOS)
 # ==========================================
 
 async def transfer_video(message, source_id, target_id):
@@ -317,17 +177,18 @@ async def transfer_video(message, source_id, target_id):
         return
 
     try:
+        # caption=None karne se video bilkul clean jayegi (koi text ya link nahi aayega)
         await user_client.send_file(
             target_id,
             message.media,
-            caption=message.message or None,
+            caption=None,
             supports_streaming=True
         )
 
         mark_processed(source_id, message.id, target_id)
 
         logging.info(
-            "Transferred source=%s message=%s target=%s",
+            "Transferred clean video source=%s message=%s target=%s",
             source_id, message.id, target_id
         )
 
@@ -345,13 +206,124 @@ async def transfer_video(message, source_id, target_id):
         )
 
 # ==========================================
+# PROCESS OLD MESSAGES (HISTORY)
+# ==========================================
+
+async def process_old_messages(owner_id):
+    connections = get_connections(owner_id)
+    for source_id, target_id in connections:
+        logging.info("Fetching old clean videos from source=%s to target=%s", source_id, target_id)
+        try:
+            async for message in user_client.iter_messages(source_id, reverse=True):
+                if not transfer_status(owner_id):
+                    break
+                await transfer_video(message, source_id, target_id)
+        except Exception as e:
+            logging.error("Error fetching old messages for source %s: %s", source_id, e)
+
+# ==========================================
+# CONTROL BOT
+# ==========================================
+
+@bot_client.on(events.NewMessage(pattern=r"^/start$"))
+async def start_handler(event):
+    if event.sender_id not in OWNER_IDS:
+        await event.respond("⛔ You are not authorised to use this bot.")
+        return
+
+    pending.pop(event.sender_id, None)
+
+    await event.respond(
+        "🎬 CLEAN VIDEO AUTO TRANSFER BOT\n\n"
+        "Press START TRANSFER to transfer old clean videos and monitor new ones.",
+        buttons=main_menu()
+    )
+
+@bot_client.on(events.CallbackQuery)
+async def button_handler(event):
+    owner_id = event.sender_id
+
+    if owner_id not in OWNER_IDS:
+        await event.answer("Not authorised.", alert=True)
+        return
+
+    data = event.data
+
+    if data == b"add":
+        pending[owner_id] = {"step": "source"}
+        await event.edit(
+            "📥 Please send your SOURCE CHANNEL ID.\n\n"
+            "Your Telegram user account must have access to it."
+        )
+
+    elif data == b"view":
+        connections = get_connections(owner_id)
+        if not connections:
+            await event.respond("No connections configured.")
+            return
+
+        lines = ["📋 YOUR CONNECTIONS\n"]
+        for i, (source, target) in enumerate(connections, 1):
+            lines.append(f"{i}. SOURCE: {source}\n   TARGET: {target}\n")
+        await event.respond("\n".join(lines))
+
+    elif data == b"start_transfer":
+        connections = get_connections(owner_id)
+        if not connections:
+            await event.answer("Add at least one source and target first.", alert=True)
+            return
+
+        set_transfer_status(owner_id, True)
+        await event.respond(
+            "🚀 CLEAN TRANSFER STARTED!\n\n"
+            "Bot is processing old videos without captions and will monitor new ones."
+        )
+        asyncio.create_task(process_old_messages(owner_id))
+
+    elif data == b"stop_transfer":
+        set_transfer_status(owner_id, False)
+        await event.respond("⏹ Transfer stopped.")
+
+@bot_client.on(events.NewMessage)
+async def setup_handler(event):
+    owner_id = event.sender_id
+    if owner_id not in OWNER_IDS:
+        return
+
+    if event.raw_text and event.raw_text.startswith("/"):
+        return
+
+    state = pending.get(owner_id)
+    if not state:
+        return
+
+    channel_id = valid_channel_id(event.raw_text or "")
+    if channel_id is None:
+        await event.respond("❌ Invalid ID. Send a numeric Telegram channel/group ID.")
+        return
+
+    if state["step"] == "source":
+        state["source_id"] = channel_id
+        state["step"] = "target"
+        await event.respond(f"✅ SOURCE ACCEPTED: {channel_id}\n\nNow send the TARGET CHANNEL/GROUP ID.")
+
+    elif state["step"] == "target":
+        source_id = state["source_id"]
+        target_id = channel_id
+        save_connection(owner_id, source_id, target_id)
+        pending.pop(owner_id, None)
+        await event.respond(
+            f"✅ CONNECTION SAVED\n\nSOURCE: {source_id}\nTARGET: {target_id}\n\nWhat would you like to do next?",
+            buttons=main_menu()
+        )
+
+# ==========================================
 # LIVE MONITOR
 # ==========================================
 
 @user_client.on(events.NewMessage)
 async def live_handler(event):
     source_id = event.chat_id
-
     if source_id is None:
         return
 
@@ -363,11 +335,7 @@ async def live_handler(event):
             if source_id != configured_source:
                 continue
 
-            await transfer_video(
-                event.message,
-                configured_source,
-                target_id
-            )
+            await transfer_video(event.message, configured_source, target_id)
 
 # ==========================================
 # MAIN
@@ -379,7 +347,7 @@ async def main():
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
 
-    logging.info("Video Transfer Bot started.")
+    logging.info("Clean Video Transfer Bot started.")
 
     await asyncio.gather(
         user_client.run_until_disconnected(),
