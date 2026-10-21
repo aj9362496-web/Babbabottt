@@ -20,7 +20,7 @@ from telethon.errors import (
 api_id = 37093326  
 api_hash = "6e370e6d265a4866e3af0da44c8334da"  
 
-# Updated Control bot token
+# Control bot token
 BOT_TOKEN = "8890372929:AAFpTlUJsz4ddPfAWMNYjKVlrwLZhVh_khM"
 
 # User account session: Railway Variables
@@ -89,6 +89,14 @@ def save_connection(owner_id, source_id, target_id):
             DO UPDATE SET target_id = excluded.target_id,
                           enabled = 1
         """, (owner_id, source_id, target_id))
+
+def remove_connection(owner_id, source_id):
+    with db_connect() as db:
+        cursor = db.execute("""
+            DELETE FROM connections
+            WHERE owner_id = ? AND source_id = ?
+        """, (owner_id, source_id))
+        return cursor.rowcount > 0
 
 def already_processed(source_id, message_id, target_id):
     with db_connect() as db:
@@ -277,9 +285,34 @@ async def start_handler(event):
 
     await event.respond(
         "⚡ FULL-SPEED VIDEO TRANSFER BOT\n\n"
-        "Press START FULL-SPEED TRANSFER to launch high-speed concurrent transfers.",
+        "Commands:\n"
+        "• /remove <source_id> - Remove source & target connection\n\n"
+        "Press START FULL-SPEED TRANSFER to launch transfers.",
         buttons=main_menu()
     )
+
+@bot_client.on(events.NewMessage(pattern=r"^/remove"))
+async def remove_handler(event):
+    owner_id = event.sender_id
+    if owner_id not in OWNER_IDS:
+        await event.respond("⛔ You are not authorised to use this bot.")
+        return
+
+    parts = event.raw_text.strip().split()
+    if len(parts) < 2:
+        await event.respond("❌ Please provide the source channel ID.\nUsage: `/remove -1004370545369`")
+        return
+
+    source_id = valid_channel_id(parts[1])
+    if source_id is None:
+        await event.respond("❌ Invalid source channel ID format.")
+        return
+
+    removed = remove_connection(owner_id, source_id)
+    if removed:
+        await event.respond(f"✅ Connection for source `{source_id}` has been completely removed! Videos will stop transferring.")
+    else:
+        await event.respond(f"❌ No active connection found for source `{source_id}`.")
 
 @bot_client.on(events.CallbackQuery)
 async def button_handler(event):
