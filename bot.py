@@ -165,7 +165,7 @@ def main_menu():
     return [
         [Button.inline("➕ ADD ANOTHER CHANNEL", b"add")],
         [Button.inline("📋 VIEW CONNECTIONS", b"view")],
-        [Button.inline("🚀 START FULL-SPEED TRANSFER", b"start_transfer")],
+        [Button.inline("🚀 START MULTI-CHANNEL SPEED", b"start_transfer")],
         [Button.inline("⏹ STOP TRANSFER", b"stop_transfer")],
     ]
 
@@ -229,47 +229,57 @@ async def transfer_video(message, source_id, target_id):
                 pass
 
 # ==========================================
-# PROCESS OLD MESSAGES (FULL SPEED CONCURRENT)
+# PROCESS ALL CHANNELS CONCURRENTLY (ULTRA FAST)
 # ==========================================
+
+async def process_single_connection(owner_id, source_id, target_id, sem):
+    logging.info("Starting multi-channel fetch from source=%s to target=%s", source_id, target_id)
+    try:
+        tasks = []
+        async for message in user_client.iter_messages(source_id, reverse=True):
+            if not transfer_status(owner_id):
+                break
+            
+            if not (message.video or (
+                message.document
+                and message.document.mime_type
+                and message.document.mime_type.startswith("video/")
+            )):
+                continue
+
+            if already_processed(source_id, message.id, target_id):
+                continue
+
+            async def bounded_transfer(msg=message):
+                async with sem:
+                    if transfer_status(owner_id):
+                        await transfer_video(msg, source_id, target_id)
+
+            tasks.append(bounded_transfer())
+
+            if len(tasks) >= 6:
+                await asyncio.gather(*tasks)
+                tasks = []
+
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    except Exception as e:
+        logging.error("Error in channel fetch for source %s: %s", source_id, e)
 
 async def process_old_messages(owner_id):
     connections = get_connections(owner_id)
-    sem = asyncio.Semaphore(3)
+    if not connections:
+        return
+    
+    # Global concurrency semaphore across ALL channels combined
+    sem = asyncio.Semaphore(5)
 
-    async def bounded_transfer(message, source_id, target_id):
-        async with sem:
-            if transfer_status(owner_id):
-                await transfer_video(message, source_id, target_id)
-
-    for source_id, target_id in connections:
-        logging.info("Starting high-speed history fetch from source=%s to target=%s", source_id, target_id)
-        try:
-            tasks = []
-            async for message in user_client.iter_messages(source_id, reverse=True):
-                if not transfer_status(owner_id):
-                    break
-                
-                if not (message.video or (
-                    message.document
-                    and message.document.mime_type
-                    and message.document.mime_type.startswith("video/")
-                )):
-                    continue
-
-                if already_processed(source_id, message.id, target_id):
-                    continue
-
-                tasks.append(bounded_transfer(message, source_id, target_id))
-
-                if len(tasks) >= 5:
-                    await asyncio.gather(*tasks)
-                    tasks = []
-
-            if tasks:
-                await asyncio.gather(*tasks)
-
-        except Exception as e:
-            logging.error("Error in high-speed fetch for source %s: %s", source_id, e)
+    # Saare channels/groups ko ek saath (concurrently) run karo!
+    await asyncio.gather(*(
+        process_single_connection(owner_id, source_id, target_id, sem)
+        for source_id, target_id in connections
+    ))
 
 # ==========================================
 # CONTROL BOT
@@ -284,10 +294,10 @@ async def start_handler(event):
     pending.pop(event.sender_id, None)
 
     await event.respond(
-        "⚡ FULL-SPEED VIDEO TRANSFER BOT\n\n"
+        "⚡ MULTI-CHANNEL FULL-SPEED TRANSFER BOT\n\n"
         "Commands:\n"
         "• /remove <source_id> - Remove source & target connection\n\n"
-        "Press START FULL-SPEED TRANSFER to launch transfers.",
+        "Press START MULTI-CHANNEL SPEED to launch all transfers simultaneously.",
         buttons=main_menu()
     )
 
@@ -350,8 +360,8 @@ async def button_handler(event):
 
         set_transfer_status(owner_id, True)
         await event.respond(
-            "🚀 FULL-SPEED TRANSFER ACTIVATED!\n\n"
-            "Bot is now downloading and uploading multiple videos concurrently at max speed."
+            "🚀 MULTI-CHANNEL SPEED ACTIVATED!\n\n"
+            "All added groups and channels are now transferring videos simultaneously at max speed."
         )
         asyncio.create_task(process_old_messages(owner_id))
 
@@ -422,7 +432,7 @@ async def main():
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
 
-    logging.info("Full-Speed Video Transfer Bot started.")
+    logging.info("Multi-Channel Full-Speed Video Transfer Bot started.")
 
     await asyncio.gather(
         user_client.run_until_disconnected(),
