@@ -20,7 +20,7 @@ from telethon.errors import (
 api_id = 37093326  
 api_hash = "6e370e6d265a4866e3af0da44c8334da"  
 
-# Control bot ka token (Direct fixed)
+# Updated Control bot token
 BOT_TOKEN = "8890372929:AAFpTlUJsz4ddPfAWMNYjKVlrwLZhVh_khM"
 
 # User account session: Railway Variables
@@ -157,12 +157,12 @@ def main_menu():
     return [
         [Button.inline("➕ ADD ANOTHER CHANNEL", b"add")],
         [Button.inline("📋 VIEW CONNECTIONS", b"view")],
-        [Button.inline("🚀 START TRANSFER & OLD VIDEOS", b"start_transfer")],
+        [Button.inline("🚀 START FULL-SPEED TRANSFER", b"start_transfer")],
         [Button.inline("⏹ STOP TRANSFER", b"stop_transfer")],
     ]
 
 # ==========================================
-# VIDEO TRANSFER FUNCTION (CLEAN VIDEOS)
+# VIDEO TRANSFER FUNCTION (FAST, CLEAN, PROTECTED)
 # ==========================================
 
 async def transfer_video(message, source_id, target_id):
@@ -176,11 +176,19 @@ async def transfer_video(message, source_id, target_id):
     if already_processed(source_id, message.id, target_id):
         return
 
+    file_path = None
     try:
-        # caption=None karne se video bilkul clean jayegi (koi text ya link nahi aayega)
+        logging.info("Downloading video concurrently: source=%s message=%s", source_id, message.id)
+        file_path = await message.download_media()
+
+        if not file_path:
+            logging.error("Failed to download media for message=%s", message.id)
+            return
+
+        # Clean upload (caption=None)
         await user_client.send_file(
             target_id,
-            message.media,
+            file_path,
             caption=None,
             supports_streaming=True
         )
@@ -188,7 +196,7 @@ async def transfer_video(message, source_id, target_id):
         mark_processed(source_id, message.id, target_id)
 
         logging.info(
-            "Transferred clean video source=%s message=%s target=%s",
+            "⚡ Transferred at full speed: source=%s message=%s target=%s",
             source_id, message.id, target_id
         )
 
@@ -205,21 +213,55 @@ async def transfer_video(message, source_id, target_id):
             source_id, message.id, target_id
         )
 
+    finally:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
 # ==========================================
-# PROCESS OLD MESSAGES (HISTORY)
+# PROCESS OLD MESSAGES (FULL SPEED CONCURRENT)
 # ==========================================
 
 async def process_old_messages(owner_id):
     connections = get_connections(owner_id)
+    sem = asyncio.Semaphore(3)
+
+    async def bounded_transfer(message, source_id, target_id):
+        async with sem:
+            if transfer_status(owner_id):
+                await transfer_video(message, source_id, target_id)
+
     for source_id, target_id in connections:
-        logging.info("Fetching old clean videos from source=%s to target=%s", source_id, target_id)
+        logging.info("Starting high-speed history fetch from source=%s to target=%s", source_id, target_id)
         try:
+            tasks = []
             async for message in user_client.iter_messages(source_id, reverse=True):
                 if not transfer_status(owner_id):
                     break
-                await transfer_video(message, source_id, target_id)
+                
+                if not (message.video or (
+                    message.document
+                    and message.document.mime_type
+                    and message.document.mime_type.startswith("video/")
+                )):
+                    continue
+
+                if already_processed(source_id, message.id, target_id):
+                    continue
+
+                tasks.append(bounded_transfer(message, source_id, target_id))
+
+                if len(tasks) >= 5:
+                    await asyncio.gather(*tasks)
+                    tasks = []
+
+            if tasks:
+                await asyncio.gather(*tasks)
+
         except Exception as e:
-            logging.error("Error fetching old messages for source %s: %s", source_id, e)
+            logging.error("Error in high-speed fetch for source %s: %s", source_id, e)
 
 # ==========================================
 # CONTROL BOT
@@ -234,8 +276,8 @@ async def start_handler(event):
     pending.pop(event.sender_id, None)
 
     await event.respond(
-        "🎬 CLEAN VIDEO AUTO TRANSFER BOT\n\n"
-        "Press START TRANSFER to transfer old clean videos and monitor new ones.",
+        "⚡ FULL-SPEED VIDEO TRANSFER BOT\n\n"
+        "Press START FULL-SPEED TRANSFER to launch high-speed concurrent transfers.",
         buttons=main_menu()
     )
 
@@ -275,8 +317,8 @@ async def button_handler(event):
 
         set_transfer_status(owner_id, True)
         await event.respond(
-            "🚀 CLEAN TRANSFER STARTED!\n\n"
-            "Bot is processing old videos without captions and will monitor new ones."
+            "🚀 FULL-SPEED TRANSFER ACTIVATED!\n\n"
+            "Bot is now downloading and uploading multiple videos concurrently at max speed."
         )
         asyncio.create_task(process_old_messages(owner_id))
 
@@ -335,7 +377,7 @@ async def live_handler(event):
             if source_id != configured_source:
                 continue
 
-            await transfer_video(event.message, configured_source, target_id)
+            asyncio.create_task(transfer_video(event.message, configured_source, target_id))
 
 # ==========================================
 # MAIN
@@ -347,7 +389,7 @@ async def main():
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
 
-    logging.info("Clean Video Transfer Bot started.")
+    logging.info("Full-Speed Video Transfer Bot started.")
 
     await asyncio.gather(
         user_client.run_until_disconnected(),
@@ -356,4 +398,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-            
